@@ -19,6 +19,7 @@ Generate a session secret with `openssl rand -hex 32`. Use a long password, for 
 | `COURIER_TOKEN` | sent as `x-courier-token` |
 | `COURIER_PASSWORD` | password the courier types |
 | `SESSION_SECRET` | signs the session cookie |
+| `TODAY` | optional, testing only: pretend today is this date, e.g. `2026-10-17`. Leave unset in production. |
 
 ## Rotating secrets
 
@@ -30,7 +31,7 @@ Change the value in Vercel, then redeploy (Deployments → latest → Redeploy).
 ## How access works
 
 - `POST /api/login` checks the password and sets an `HttpOnly` session cookie valid for 7 days. Wrong passwords get a 1 second delay.
-- `GET /api/orders` requires the cookie, fetches orders from the API and returns only today and tomorrow (Europe/Berlin).
+- `GET /api/orders` requires the cookie, fetches today's and tomorrow's orders (Europe/Berlin) from the API with `?date=`.
 - "Delivered" ticks are stored on the courier's phone only (see `TODO.md`).
 
 ## Local development
