@@ -1,5 +1,7 @@
 # Courier delivery page
 
+[![Vercel deployment](https://img.shields.io/github/deployments/sht/tcp-delivery-run/Production?label=vercel&logo=vercel)](https://github.com/sht/tcp-delivery-run/deployments)
+
 Password protected page that shows the courier their orders for today and tomorrow, with call, navigate, route and "delivered" ticks. Hosted on Vercel: `index.html` is the page, `api/` holds the functions that keep the API key and courier token server side.
 
 ## Setup
