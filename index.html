@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Deliveries</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #fff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e1db;
+    --accent: #c2410c; --accent-text: #fff; --note: #fff4d6; --ok: #15803d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --card: #22221f; --text: #ecebe7; --muted: #a09f99; --line: #34332f;
+      --accent: #f97316; --accent-text: #161614; --note: #3d3420; --ok: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.4 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  button, .btn {
+    font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    padding: 10px 14px; border-radius: 10px; text-decoration: none; display: inline-block; cursor: pointer;
+  }
+  .primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .muted { color: var(--muted); font-size: 14px; }
+  .hidden { display: none !important; }
+
+  #login { margin-top: 20vh; display: grid; gap: 12px; }
+  #login input { font: inherit; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  #login-error { color: var(--accent); min-height: 1.4em; }
+
+  header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+  header h1 { font-size: 20px; margin: 0; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+  .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
+  .slot { margin-bottom: 24px; }
+  .slot-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; flex-wrap: wrap; }
+  .slot-head h2 { font-size: 17px; margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+  .card.done { opacity: .5; }
+  .card h3 { margin: 0 0 2px; font-size: 17px; }
+  .card ul { margin: 8px 0; padding-left: 20px; }
+  .note { background: var(--note); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .actions label { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .actions input { width: 22px; height: 22px; accent-color: var(--ok); }
+  .empty { text-align: center; padding: 40px 0; }
+</style>
+</head>
+<body>
+<main>
+  <form id="login" class="hidden">
+    <h1>Deliveries</h1>
+    <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Log in</button>
+    <div id="login-error"></div>
+  </form>
+
+  <section id="app" class="hidden">
+    <header>
+      <div>
+        <h1 id="courier"></h1>
+        <div class="muted" id="updated"></div>
+      </div>
+      <div>
+        <button id="refresh">Refresh</button>
+        <button id="logout">Log out</button>
+      </div>
+    </header>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-day="today" aria-selected="true">Today</button>
+      <button role="tab" data-day="tomorrow" aria-selected="false">Tomorrow</button>
+    </div>
+    <div id="list"></div>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const ROUTE_STOPS = 4;
+  let data = null;
+  let day = 'today';
+
+  const store = {
+    get() { try { return JSON.parse(localStorage.getItem('delivered')) || {}; } catch { return {}; } },
+    set(value) { try { localStorage.setItem('delivered', JSON.stringify(value)); } catch {} },
+  };
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const mapsSearch = (address) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+
+  function routeLinks(orders) {
+    const links = [];
+    for (let i = 0; i < orders.length; i += ROUTE_STOPS) {
+      const stops = orders.slice(i, i + ROUTE_STOPS).map((o) => o.delivery_address);
+      const destination = stops.pop();
+      let url = `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(destination)}`;
+      if (stops.length) url += `&waypoints=${encodeURIComponent(stops.join('|'))}`;
+      links.push(url);
+    }
+    return links;
+  }
+
+  function showLogin() {
+    $('app').classList.add('hidden');
+    $('login').classList.remove('hidden');
+    $('password').focus();
+  }
+
+  async function load() {
+    const res = await fetch('/api/orders', { cache: 'no-store' });
+    if (res.status === 401) return showLogin();
+    if (!res.ok) { $('list').innerHTML = '<p class="empty">Could not load orders. Try Refresh.</p>'; return; }
+    data = await res.json();
+    $('login').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('courier').textContent = data.courier || 'Deliveries';
+    $('updated').textContent = `Updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+    render();
+  }
+
+  function render() {
+    const delivered = store.get();
+    const date = data[day];
+    const orders = data.orders.filter((o) => o.fulfillment_date === date);
+    if (!orders.length) { $('list').innerHTML = `<p class="empty muted">No orders for ${day} (${date}).</p>`; return; }
+
+    const slots = {};
+    for (const o of orders) (slots[o.meal_time || 'No time set'] ||= []).push(o);
+
+    $('list').innerHTML = Object.entries(slots).map(([slot, list]) => {
+      const open = list.filter((o) => !delivered[o.order_number]);
+      const sorted = [...open, ...list.filter((o) => delivered[o.order_number])];
+      const routes = routeLinks(open).map((url, i, all) =>
+        `<a class="btn primary" target="_blank" rel="noopener" href="${esc(url)}">Route${all.length > 1 ? ` ${i + 1}` : ''}</a>`).join(' ');
+      return `
+        <section class="slot">
+          <div class="slot-head">
+            <h2>${esc(slot)} <span class="muted">${open.length}/${list.length} open</span></h2>
+            <div>${routes}</div>
+          </div>
+          ${sorted.map((o) => card(o, delivered[o.order_number])).join('')}
+        </section>`;
+    }).join('');
+  }
+
+  function card(o, done) {
+    const items = o.items.map((i) => `<li>${i.quantity}× ${esc(i.name)}${i.size ? ` (${esc(i.size)})` : ''}</li>`).join('');
+    return `
+      <article class="card${done ? ' done' : ''}">
+        <h3>${esc(o.customer_name)}</h3>
+        <div>${esc(o.delivery_address)}</div>
+        <div class="muted">${esc(o.delivery_district)}${o.building_company_name ? ` · ${esc(o.building_company_name)}` : ''} · ${esc(o.order_number)}</div>
+        <ul>${items}</ul>
+        ${o.side_option ? `<div class="muted">Side: ${esc(o.side_option)}</div>` : ''}
+        ${o.special_instructions ? `<div class="note">${esc(o.special_instructions)}</div>` : ''}
+        <div class="actions">
+          <a class="btn" href="tel:${esc(o.customer_phone)}">Call</a>
+          <a class="btn" target="_blank" rel="noopener" href="${esc(mapsSearch(o.delivery_address))}">Navigate</a>
+          <label><input type="checkbox" data-order="${esc(o.order_number)}" ${done ? 'checked' : ''}> Delivered</label>
+        </div>
+      </article>`;
+  }
+
+  $('login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('login-error').textContent = '';
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: $('password').value }),
+    });
+    if (!res.ok) { $('login-error').textContent = 'Wrong password'; return; }
+    $('password').value = '';
+    load();
+  });
+
+  $('logout').addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    data = null;
+    $('list').innerHTML = '';
+    showLogin();
+  });
+
+  $('refresh').addEventListener('click', load);
+
+  document.querySelector('.tabs').addEventListener('click', (e) => {
+    if (!e.target.dataset.day) return;
+    day = e.target.dataset.day;
+    document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.day === day));
+    render();
+  });
+
+  $('list').addEventListener('change', (e) => {
+    const id = e.target.dataset.order;
+    if (!id) return;
+    const delivered = store.get();
+    if (e.target.checked) delivered[id] = true; else delete delivered[id];
+    store.set(delivered);
+    render();
+  });
+
+  load();
+</script>
+</body>
+</html>
