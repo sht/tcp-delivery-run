@@ -113,10 +113,10 @@
   async function load() {
     const res = await fetch('/api/orders', { cache: 'no-store' });
     if (res.status === 401) return showLogin();
-    if (!res.ok) { $('list').innerHTML = '<p class="empty">Could not load orders. Try Refresh.</p>'; return; }
-    data = await res.json();
     $('login').classList.add('hidden');
     $('app').classList.remove('hidden');
+    if (!res.ok) { $('list').innerHTML = '<p class="empty">Could not load orders. Try Refresh.</p>'; return; }
+    data = await res.json();
     $('courier').textContent = data.courier || 'Deliveries';
     $('updated').textContent = `Updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
     render();
@@ -188,7 +188,7 @@
     if (!e.target.dataset.day) return;
     day = e.target.dataset.day;
     document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.day === day));
-    render();
+    if (data) render();
   });
 
   $('list').addEventListener('change', (e) => {
