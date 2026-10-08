@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# AI tools
+.claude/
+.codex/
+.cursor/
+.aider*
+CLAUDE.local.md
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
