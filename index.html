@@ -152,7 +152,7 @@
       <article class="card${done ? ' done' : ''}">
         <h3>${esc(o.customer_name)}</h3>
         <div>${esc(o.delivery_address)}</div>
-        <div class="muted">${esc(o.delivery_district)}${o.building_company_name ? ` · ${esc(o.building_company_name)}` : ''} · ${esc(o.order_number)}</div>
+        <div class="muted">${[o.delivery_district, o.building_company_name, o.order_number].filter(Boolean).map(esc).join(' · ')}</div>
         ${o.delivery_note ? `<div class="note">${esc(o.delivery_note)}</div>` : ''}
         <div class="actions">
           ${o.customer_phone ? `<a class="btn" href="tel:${esc(o.customer_phone)}">Call</a>` : ''}
