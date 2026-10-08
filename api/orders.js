@@ -46,9 +46,10 @@ export default async function handler(req, res) {
     fulfillment_date: date,
     customer_phone: date === today ? o.customer_phone : null,
   }));
-  const orders = [...tag(results[0].orders, today), ...tag(results[1].orders, tomorrow)]
-    .sort((a, b) =>
-      a.fulfillment_date.localeCompare(b.fulfillment_date) || (a.meal_time || '').localeCompare(b.meal_time || ''));
+  const orders = [...tag(results[0].orders, today), ...tag(results[1].orders, tomorrow)];
+  const kitchen = process.env.KITCHEN_LAT && process.env.KITCHEN_LNG
+    ? { lat: Number(process.env.KITCHEN_LAT), lng: Number(process.env.KITCHEN_LNG) }
+    : null;
 
-  res.status(200).json({ courier: results[0].courier, today, tomorrow, orders });
+  res.status(200).json({ courier: results[0].courier, today, tomorrow, kitchen, orders });
 }

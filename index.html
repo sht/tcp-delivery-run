@@ -9,12 +9,12 @@
 <style>
   :root {
     --bg: #f6f5f2; --card: #fff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e1db;
-    --accent: #c2410c; --accent-text: #fff; --note: #fff4d6; --ok: #15803d;
+    --accent: #c2410c; --accent-text: #fff; --note: #fff4d6; --ok: #15803d; --late: #b91c1c;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #161614; --card: #22221f; --text: #ecebe7; --muted: #a09f99; --line: #34332f;
-      --accent: #f97316; --accent-text: #161614; --note: #3d3420; --ok: #4ade80;
+      --accent: #f97316; --accent-text: #161614; --note: #3d3420; --ok: #4ade80; --late: #f87171;
     }
   }
   * { box-sizing: border-box; }
@@ -37,9 +37,13 @@
   .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
   .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 
-  .slot { margin-bottom: 24px; }
-  .slot-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; flex-wrap: wrap; }
-  .slot-head h2 { font-size: 17px; margin: 0; }
+  .run { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; flex-wrap: wrap; }
+  .run h2 { font-size: 17px; margin: 0; }
+  .routes { display: flex; gap: 8px; flex-wrap: wrap; }
+  .stop { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 14px; }
+  .num { background: var(--accent); color: var(--accent-text); border-radius: 999px; min-width: 26px; height: 26px; display: inline-grid; place-items: center; font-weight: 600; }
+  .badge { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+  .late { color: var(--late); font-weight: 600; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
   .card.done { opacity: .5; }
   .card h3 { margin: 0 0 2px; font-size: 17px; }
@@ -78,8 +82,11 @@
   </section>
 </main>
 
-<script>
+<script type="module">
+  import { planRun, formatTime } from '/lib/route.js';
+
   const $ = (id) => document.getElementById(id);
+  const RUN_START = 10 * 60;
   const ROUTE_STOPS = 4;
   let data = null;
   let day = 'today';
@@ -128,28 +135,45 @@
     const orders = data.orders.filter((o) => o.fulfillment_date === date);
     if (!orders.length) { $('list').innerHTML = `<p class="empty muted">No orders for ${day} (${date}).</p>`; return; }
 
-    const slots = {};
-    for (const o of orders) (slots[o.meal_time || 'No time set'] ||= []).push(o);
+    const open = orders.filter((o) => !delivered[o.order_number]);
+    const done = orders.filter((o) => delivered[o.order_number]);
 
-    $('list').innerHTML = Object.entries(slots).map(([slot, list]) => {
-      const open = list.filter((o) => !delivered[o.order_number]);
-      const sorted = [...open, ...list.filter((o) => delivered[o.order_number])];
-      const routes = routeLinks(open).map((url, i, all) =>
-        `<a class="btn primary" target="_blank" rel="noopener" href="${esc(url)}">Route${all.length > 1 ? ` ${i + 1}` : ''}</a>`).join(' ');
-      return `
-        <section class="slot">
-          <div class="slot-head">
-            <h2>${esc(slot)} <span class="muted">${open.length}/${list.length} open</span></h2>
-            <div>${routes}</div>
-          </div>
-          ${sorted.map((o) => card(o, delivered[o.order_number])).join('')}
-        </section>`;
-    }).join('');
+    // Re-plan from the last delivered stop, otherwise from the kitchen at 10:00.
+    const last = done.filter((o) => o.lat != null).sort((a, b) => delivered[b.order_number] - delivered[a.order_number])[0];
+    const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+    const plan = planRun({
+      start: last || data.kitchen,
+      startTime: day === 'today' ? Math.max(RUN_START, nowMinutes()) : RUN_START,
+      stops: open,
+      useWindows: weekday !== 0 && weekday !== 6,
+    });
+
+    const routes = routeLinks(plan.stops).map((url, i) =>
+      `<a class="btn primary" target="_blank" rel="noopener" href="${esc(url)}">${plan.stops.length <= ROUTE_STOPS ? 'Route' : `Stops ${i * ROUTE_STOPS + 1}–${Math.min((i + 1) * ROUTE_STOPS, plan.stops.length)}`}</a>`);
+    const lead = !open.length ? 'All delivered'
+      : last ? `${open.length} of ${orders.length} open`
+      : `Leave kitchen at ${formatTime(plan.departure)}`;
+
+    $('list').innerHTML = `
+      <div class="run">
+        <h2>${lead}</h2>
+        <div class="routes">${routes.join('')}</div>
+      </div>
+      ${plan.stops.map((o, i) => card(o, i + 1, false)).join('')}
+      ${done.map((o) => card(o, null, true)).join('')}`;
   }
 
-  function card(o, done) {
+  function nowMinutes() {
+    const [h, m] = new Date().toLocaleTimeString('en-GB', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' }).split(':');
+    return h * 60 + +m;
+  }
+
+  function card(o, num, done) {
+    const eta = o.eta == null ? (o.lat == null ? '<span class="late">No location</span>' : '')
+      : `<span class="${o.late ? 'late' : ''}">~${formatTime(o.eta)}${o.late ? ' late' : ''}</span>`;
     return `
       <article class="card${done ? ' done' : ''}">
+        ${done ? '' : `<div class="stop"><span class="num">${num}</span>${o.delivery_window ? `<span class="badge">${esc(o.delivery_window)}</span>` : ''}<span>${eta}</span></div>`}
         <h3>${esc(o.customer_name)}</h3>
         <div>${esc(o.delivery_address)}</div>
         <div class="muted">${[o.delivery_district, o.building_company_name, o.order_number].filter(Boolean).map(esc).join(' · ')}</div>
@@ -195,7 +219,7 @@
     const id = e.target.dataset.order;
     if (!id) return;
     const delivered = store.get();
-    if (e.target.checked) delivered[id] = true; else delete delivered[id];
+    if (e.target.checked) delivered[id] = Date.now(); else delete delivered[id];
     store.set(delivered);
     render();
   });

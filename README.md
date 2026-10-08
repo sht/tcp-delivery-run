@@ -19,6 +19,7 @@ Generate a session secret with `openssl rand -hex 32`. Use a long password, for 
 | `COURIER_TOKEN` | sent as `x-courier-token` |
 | `COURIER_PASSWORD` | password the courier types |
 | `SESSION_SECRET` | signs the session cookie |
+| `KITCHEN_LAT`, `KITCHEN_LNG` | kitchen location, start of every run |
 | `MOCK_ORDERS` | optional, testing only: `1` serves fake orders from `fixtures/orders.json` instead of calling the API. Leave unset in production. |
 
 ## Rotating secrets
@@ -33,6 +34,15 @@ Change the value in Vercel, then redeploy (Deployments → latest → Redeploy).
 - `POST /api/login` checks the password and sets an `HttpOnly` session cookie valid for 7 days. Wrong passwords get a 1 second delay.
 - `GET /api/orders` requires the cookie, fetches today's and tomorrow's orders (Europe/Berlin) from the API with `?date=`. Phone numbers are only passed on for today's orders.
 - "Delivered" ticks are stored on the courier's phone only (see `TODO.md`).
+
+## Route planning
+
+`lib/route.js` plans 1 run per day, starting from the kitchen at 10:00 (runs in the browser):
+
+- Weekdays: stops are grouped by `delivery_window` in time order, each group is ordered from where the previous one ended. Up to 15 min early is allowed, stops that miss their window are marked late.
+- Weekends: no windows, all stops ordered as 1 group.
+- Ordering: brute force up to 8 stops, nearest neighbour + 2-opt above. Straight-line distance × 1.3 at 15 km/h, 3 min per handover.
+- After a "delivered" tick, the rest is re-planned from that stop.
 
 ## Local development
 
