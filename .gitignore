@@ -28,3 +28,4 @@ CLAUDE.local.md
 
 # Logs
 *.log
+.vercel
