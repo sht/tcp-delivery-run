@@ -2,6 +2,7 @@
 
 ## Base44
 
+- Add a courier hint field (e.g. "3rd floor, ring twice") to the Order entity and checkout. `delivery_note` is always `null` until then.
 - Add an endpoint to set an order's status to `delivered`. Then add a `POST /api/delivered` proxy function and replace the `localStorage` ticks in `index.html` with it, so delivered status is visible centrally.
 
 ## Later

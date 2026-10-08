@@ -1,10 +1,7 @@
 import { isAuthenticated } from '../lib/session.js';
 
-// TODAY=YYYY-MM-DD overrides the current date, for testing only.
-function berlinDate(offsetDays) {
-  const base = process.env.TODAY ? new Date(`${process.env.TODAY}T12:00:00Z`) : new Date();
-  return new Date(base.getTime() + offsetDays * 86400000).toLocaleDateString('en-CA', { timeZone: 'Europe/Berlin' });
-}
+const berlinDate = (offsetDays) =>
+  new Date(Date.now() + offsetDays * 86400000).toLocaleDateString('en-CA', { timeZone: 'Europe/Berlin' });
 
 async function fetchOrders(date) {
   const upstream = await fetch(`${process.env.API_BASE_URL}/functions/getCourierOrders?date=${date}&limit=100`, {
@@ -17,6 +14,16 @@ async function fetchOrders(date) {
   return upstream.json();
 }
 
+// MOCK_ORDERS=1 serves fake orders from fixtures/orders.json, for local testing only.
+async function mockOrders() {
+  const { default: fixture } = await import('../fixtures/orders.json', { with: { type: 'json' } });
+  const forDay = (day) => fixture.orders.filter((o) => o.day === day).map(({ day: _, ...o }) => o);
+  return [
+    { courier: fixture.courier, orders: forDay('today') },
+    { courier: fixture.courier, orders: forDay('tomorrow') },
+  ];
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (!isAuthenticated(req)) return res.status(401).json({ error: 'Not logged in' });
@@ -26,15 +33,20 @@ export default async function handler(req, res) {
 
   let results;
   try {
-    results = await Promise.all([fetchOrders(today), fetchOrders(tomorrow)]);
+    results = process.env.MOCK_ORDERS === '1'
+      ? await mockOrders()
+      : await Promise.all([fetchOrders(today), fetchOrders(tomorrow)]);
   } catch (err) {
     console.error(err);
     return res.status(502).json({ error: 'Could not load orders' });
   }
 
-  const orders = results
-    .flatMap((r) => r.orders || [])
-    .filter((o) => o.fulfillment_date === today || o.fulfillment_date === tomorrow)
+  const tag = (orders, date) => (orders || []).map((o) => ({
+    ...o,
+    fulfillment_date: date,
+    customer_phone: date === today ? o.customer_phone : null,
+  }));
+  const orders = [...tag(results[0].orders, today), ...tag(results[1].orders, tomorrow)]
     .sort((a, b) =>
       a.fulfillment_date.localeCompare(b.fulfillment_date) || (a.meal_time || '').localeCompare(b.meal_time || ''));
 
